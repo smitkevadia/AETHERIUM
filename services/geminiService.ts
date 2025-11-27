@@ -1,5 +1,6 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
-import { AnalysisResult, AdviceRequest, AdviceResponse, Transaction, TransactionType } from "../types";
+import { AnalysisResult, AdviceRequest, AdviceResponse, Transaction } from "../types";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
@@ -21,78 +22,32 @@ export const fileToGenerativePart = async (file: File): Promise<{ inlineData: { 
   });
 };
 
-// Client-side processing to ensure data consistency
-const processTransactions = (transactions: Transaction[]): { monthlySummary: any[], topCategories: any[] } => {
-  const monthlyMap = new Map<string, { income: number, expense: number }>();
-  const categoryMap = new Map<string, number>();
-
-  transactions.forEach(t => {
-    // 1. Monthly Aggregation
-    // Assuming date is YYYY-MM-DD
-    const month = t.date.substring(0, 7); // YYYY-MM
-    if (!monthlyMap.has(month)) {
-      monthlyMap.set(month, { income: 0, expense: 0 });
-    }
-    const mData = monthlyMap.get(month)!;
-    
-    if (t.type === TransactionType.INCOME) {
-      mData.income += t.amount;
-    } else {
-      mData.expense += t.amount;
-      
-      // 2. Category Aggregation (Only for Expenses)
-      // Normalize category just in case, though prompt should handle it
-      const cat = t.category || "Other";
-      const currentVal = categoryMap.get(cat) || 0;
-      categoryMap.set(cat, currentVal + t.amount);
-    }
-  });
-
-  // Convert to arrays
-  const monthlySummary = Array.from(monthlyMap.entries()).map(([month, data]) => ({
-    month,
-    totalIncome: data.income,
-    totalExpense: data.expense,
-    savings: data.income - data.expense
-  })).sort((a, b) => a.month.localeCompare(b.month));
-
-  const topCategories = Array.from(categoryMap.entries())
-    .map(([category, amount]) => ({ category, amount }))
-    .sort((a, b) => b.amount - a.amount);
-
-  return { monthlySummary, topCategories };
-};
-
 export const analyzeStatement = async (file: File): Promise<AnalysisResult> => {
   const model = "gemini-2.5-flash";
   const filePart = await fileToGenerativePart(file);
 
   const prompt = `
-    Analyze this bank statement document image.
+    Analyze this bank statement image or document.
+    EXTRACT all transactions.
     
-    TASK: Extract all transactions from the image.
+    CRITICAL INSTRUCTION FOR CLASSIFICATION (INCOME vs EXPENSE):
+    1. Look for mathematical signs: 
+       - A '+' sign usually indicates INCOME.
+       - A '-' sign usually indicates EXPENSE.
+    2. Look for columns: 
+       - Amounts in 'Credit' or 'Deposit' columns are INCOME.
+       - Amounts in 'Debit' or 'Withdrawal' columns are EXPENSE.
+    3. Context clues:
+       - 'Salary', 'Dividend', 'Refund', 'Transfer In' are INCOME.
+       - 'Purchase', 'Payment', 'Fee', 'Transfer Out' are EXPENSE.
     
-    STRICT RULES:
-    1. EXTRACT Date, Description, Amount.
-    2. DETERMINE Type: 'INCOME' or 'EXPENSE'.
-    3. CATEGORIZE each expense into EXACTLY ONE of these categories:
-       - Food & Dining
-       - Transportation
-       - Utilities
-       - Entertainment
-       - Shopping
-       - Health
-       - Salary
-       - Transfer
-       - Other
-       
-       *CRITICAL*: 
-       - If the description is a grocery store (e.g., Walmart, Kroger), categorize as 'Shopping' or 'Food & Dining'.
-       - If gas station, 'Transportation'.
-       - If paycheck, 'Salary'.
-       - Do NOT invent new categories.
-    
-    4. RETURN JSON only.
+    RETURN JSON with an array of transactions.
+    Each transaction object must have:
+    - date (YYYY-MM-DD format)
+    - description (string)
+    - amount (number. IMPORTANT: Return the ABSOLUTE POSITIVE VALUE. Do not include the negative sign in the value.)
+    - type (string. Strictly "INCOME" or "EXPENSE" based on the signs/columns found.)
+    - category (Choose from: 'Food & Dining', 'Transportation', 'Utilities', 'Entertainment', 'Shopping', 'Health', 'Salary', 'Transfer', 'Other')
   `;
 
   const response = await ai.models.generateContent({
@@ -110,13 +65,10 @@ export const analyzeStatement = async (file: File): Promise<AnalysisResult> => {
             items: {
               type: Type.OBJECT,
               properties: {
-                date: { type: Type.STRING, description: "YYYY-MM-DD" },
+                date: { type: Type.STRING },
                 description: { type: Type.STRING },
                 amount: { type: Type.NUMBER },
-                category: { type: Type.STRING, enum: [
-                  'Food & Dining', 'Transportation', 'Utilities', 'Entertainment', 
-                  'Shopping', 'Health', 'Salary', 'Transfer', 'Other'
-                ]},
+                category: { type: Type.STRING },
                 type: { type: Type.STRING, enum: ["INCOME", "EXPENSE"] },
               },
               required: ["date", "description", "amount", "category", "type"],
@@ -132,16 +84,16 @@ export const analyzeStatement = async (file: File): Promise<AnalysisResult> => {
   
   try {
     const json = JSON.parse(cleanedText);
-    const transactions = json.transactions || [];
+    const transactions: Transaction[] = (json.transactions || []).map((t: any) => ({
+      ...t,
+      // CRITICAL FIX: Ensure amount is always positive for math logic. 
+      // The 'type' field determines if it's added or subtracted.
+      amount: Math.abs(t.amount), 
+      id: Math.random().toString(36).substr(2, 9),
+      isCash: false
+    }));
     
-    // Perform mathematical aggregation in code to avoid LLM hallucination errors
-    const { monthlySummary, topCategories } = processTransactions(transactions);
-
-    return {
-      transactions,
-      monthlySummary,
-      topCategories
-    };
+    return { transactions };
   } catch (e) {
     console.error("Failed to parse analysis results", e);
     throw new Error("Failed to parse analysis results");
@@ -152,26 +104,18 @@ export const getFinancialAdvice = async (data: AdviceRequest): Promise<AdviceRes
   const model = "gemini-2.5-flash";
   
   const prompt = `
-    You are AETHERIUM, a highly advanced tactical financial AI.
-    
-    MISSION: Analyze spending patterns and provide a tactical plan to meet the user's savings target.
-    
-    TELEMETRY:
+    You are a financial advisor with a minimalist, calm, and encouraging tone.
+    User Data:
     - Monthly Income: ${data.totalIncome}
     - Monthly Expense: ${data.totalExpense}
-    - Current Savings: ${data.currentSavings}
-    - TARGET SAVINGS GOAL: ${data.targetSavings}
+    - Current Savings (Net): ${data.currentSavings}
+    - TARGET SAVINGS GOAL (Monthly Equivalent): ${data.targetSavings}
     
-    TOP SPENDING VECTORS:
+    Top Expenses:
     ${data.topExpenses.map(e => `- ${e.category}: ${e.amount}`).join('\n')}
     
-    DIRECTIVE:
-    1. Calculate the gap between Current Savings and Target Savings.
-    2. Identify which categories to cut.
-    3. Provide precise reduction amounts for specific categories.
-    4. Give a brief, encouraging mission briefing.
-    
-    TONE: Sci-fi, military-grade precision, supportive but direct.
+    Provide actionable advice on how to reach the goal. Suggest specific cuts if necessary.
+    Return JSON.
   `;
 
   const response = await ai.models.generateContent({
@@ -192,22 +136,16 @@ export const getFinancialAdvice = async (data: AdviceRequest): Promise<AdviceRes
                 suggestedReduction: { type: Type.NUMBER },
                 reason: { type: Type.STRING },
               },
-              required: ["category", "suggestedReduction", "reason"],
             },
           },
         },
-        required: ["advice", "suggestedCuts"],
       },
     },
   });
 
-  const text = response.text || "{}";
-  const cleanedText = text.replace(/```json/g, '').replace(/```/g, '');
-
   try {
-    return JSON.parse(cleanedText) as AdviceResponse;
+    return JSON.parse(response.text || "{}") as AdviceResponse;
   } catch (e) {
-    console.error("Failed to parse advice", e);
     throw new Error("Failed to parse advice");
   }
 };

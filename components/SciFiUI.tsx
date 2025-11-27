@@ -4,62 +4,81 @@ interface CardProps {
   children: React.ReactNode;
   className?: string;
   title?: string;
-  scanline?: boolean;
+  action?: React.ReactNode;
 }
 
-export const SciFiCard: React.FC<CardProps> = ({ children, className = '', title, scanline = false }) => {
+export const Card: React.FC<CardProps> = ({ children, className = '', title, action }) => {
   return (
-    <div className={`relative overflow-hidden bg-slate-900/80 backdrop-blur-md border border-cyan-500/30 rounded-lg shadow-[0_0_15px_rgba(8,145,178,0.2)] ${className}`}>
-      {/* Corner accents */}
-      <div className="absolute top-0 left-0 w-3 h-3 border-t-2 border-l-2 border-cyan-400"></div>
-      <div className="absolute top-0 right-0 w-3 h-3 border-t-2 border-r-2 border-cyan-400"></div>
-      <div className="absolute bottom-0 left-0 w-3 h-3 border-b-2 border-l-2 border-cyan-400"></div>
-      <div className="absolute bottom-0 right-0 w-3 h-3 border-b-2 border-r-2 border-cyan-400"></div>
-      
-      {scanline && (
-        <div className="absolute inset-0 pointer-events-none z-0 opacity-10 bg-[linear-gradient(transparent_0%,rgba(6,182,212,0.4)_50%,transparent_100%)] bg-[length:100%_4px] animate-scan"></div>
-      )}
-
+    <div className={`bg-white rounded-[24px] border border-[#f0f0f0] pastel-shadow overflow-hidden transition-all duration-300 ${className}`}>
       {title && (
-        <div className="px-4 py-2 bg-cyan-950/50 border-b border-cyan-500/30 flex items-center justify-between">
-          <h3 className="font-display text-cyan-400 tracking-wider text-sm uppercase">{title}</h3>
-          <div className="flex gap-1">
-            <div className="w-1.5 h-1.5 bg-cyan-500 rounded-full animate-pulse"></div>
-            <div className="w-1.5 h-1.5 bg-cyan-500/50 rounded-full"></div>
-            <div className="w-1.5 h-1.5 bg-cyan-500/20 rounded-full"></div>
-          </div>
+        <div className="px-8 py-6 flex items-center justify-between">
+          <h3 className="font-serif text-xl text-[#4a4a4a] tracking-wide">{title}</h3>
+          {action && <div>{action}</div>}
         </div>
       )}
-      
-      <div className="p-4 relative z-10">
+      <div className="px-8 pb-8 pt-2">
         {children}
       </div>
     </div>
   );
 };
 
-export const NeonButton: React.FC<React.ButtonHTMLAttributes<HTMLButtonElement>> = ({ children, className = '', ...props }) => {
+export const Button: React.FC<React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'secondary' | 'danger' | 'ghost' }> = ({ children, className = '', variant = 'primary', ...props }) => {
+  const variants = {
+    // Primary: Grey bg, White text, Rose shadow hint
+    primary: "bg-[#4a4a4a] text-white hover:bg-[#333] shadow-lg shadow-[#ECCAC6]/40 border border-transparent",
+    // Secondary: Beige bg, Dark text
+    secondary: "bg-[#FAF9F6] text-[#4a4a4a] border border-[#EADACF] hover:bg-[#EADACF] hover:border-[#EADACF]",
+    danger: "bg-[#FFF5F5] text-[#ECCAC6] hover:bg-[#FFE5E5] border border-[#ECCAC6]",
+    ghost: "bg-transparent text-[#888991] hover:text-[#4a4a4a]"
+  };
+
   return (
     <button 
       className={`
-        relative px-6 py-3 font-display font-bold text-cyan-950 bg-cyan-400 
-        clip-path-slant hover:bg-cyan-300 transition-all duration-300
-        hover:shadow-[0_0_20px_rgba(34,211,238,0.6)] active:scale-95
-        disabled:opacity-50 disabled:cursor-not-allowed
+        px-6 py-3 rounded-2xl font-normal text-sm transition-all duration-300 
+        disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2
+        active:scale-95 tracking-wide
+        ${variants[variant]}
         ${className}
       `}
       {...props}
     >
-      <span className="relative z-10 flex items-center gap-2 justify-center">
-        {children}
-      </span>
+      {children}
     </button>
   );
 };
 
-export const StatBox: React.FC<{ label: string; value: string | number; color?: string }> = ({ label, value, color = "text-cyan-400" }) => (
-  <div className="flex flex-col border-l-2 border-slate-700 pl-4">
-    <span className="text-slate-400 text-xs uppercase tracking-widest mb-1">{label}</span>
-    <span className={`font-display text-2xl font-bold ${color} glow-text`}>{value}</span>
-  </div>
-);
+export const StatBox: React.FC<{ label: string; value: string | number; color?: 'rose' | 'beige' | 'lavender' | 'periwinkle' | 'grey' }> = ({ label, value, color = "grey" }) => {
+  const colors = {
+    rose: "bg-[#FFF0F0] text-[#D4A5A5]",
+    beige: "bg-[#FAF5F0] text-[#C4B5A5]",
+    lavender: "bg-[#F8F8FC] text-[#B5B5C4]",
+    periwinkle: "bg-[#F0F0F8] text-[#A5A5C4]",
+    grey: "bg-[#F8F9FA] text-[#888991]",
+  };
+
+  return (
+    <div className={`flex flex-col p-6 rounded-2xl transition-transform hover:-translate-y-1 duration-300 ${colors[color]}`}>
+      <span className="text-[10px] font-semibold uppercase tracking-widest opacity-80 mb-2">{label}</span>
+      <span className="font-serif text-3xl text-[#4a4a4a]">{value}</span>
+    </div>
+  );
+};
+
+export const ProgressBar: React.FC<{ progress: number; label?: string }> = ({ progress, label }) => {
+  return (
+    <div className="w-full">
+      <div className="flex justify-between items-end mb-2">
+        {label && <span className="text-xs font-medium text-[#888991] uppercase tracking-wider">{label}</span>}
+        <span className="text-xs font-bold text-[#ECCAC6]">{Math.round(progress)}%</span>
+      </div>
+      <div className="h-2 w-full bg-[#FAF9F6] rounded-full overflow-hidden border border-[#E5E5F2]">
+        <div 
+          className="h-full bg-[#ECCAC6] transition-all duration-300 ease-out"
+          style={{ width: `${progress}%` }}
+        />
+      </div>
+    </div>
+  );
+};
